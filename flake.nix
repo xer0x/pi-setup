@@ -31,9 +31,21 @@
           ./skills/nix-helper
           # add more shared skills here
         ];
+        themes = [
+          ./themes/team.json
+          # add more themes here
+        ];
         settings = {
           enableSkillCommands = true;
-          theme = "dark";
+          theme = "team";
+
+          # ── Pi packages (installed automatically on startup) ──
+          packages = [
+            "npm:pi-lmstudio"
+            "npm:pi-mcp-adapter"
+            # "npm:@foo/bar@1.0.0"
+            # "git:github.com/user/repo@v1"
+          ];
         };
         # extraArgs = [ "--provider" "anthropic" "--model" "claude-sonnet-4-20250514" ];
       };

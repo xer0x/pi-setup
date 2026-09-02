@@ -75,12 +75,24 @@ Both use the same `teamConfig` attrset, so rules, skills, and settings stay in s
 ├── skills/
 │   └── nix-helper/        # Shared skills
 │       └── SKILL.md
+├── themes/
+│   └── team.json          # Shared team theme
 ├── examples/
 │   └── personal-overrides.nix
 └── README.md
 ```
 
 ## Customizing
+
+### Themes
+
+Drop `.json` theme files into `themes/` and add them to `teamConfig.themes` in `flake.nix`. Set `settings.theme` to make one the default. Customize colors in `themes/team.json` — see the [Pi theme docs](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/themes.md) for all 51 color tokens.
+
+Teammates can override the theme locally:
+
+```nix
+programs.pi.coding-agent.settings.theme = "dark";
+```
 
 ### Rules
 
@@ -89,6 +101,20 @@ Edit `rules.md` — it's appended to pi's system prompt for every invocation.
 ### Skills
 
 Add a directory with a `SKILL.md` under `skills/` and reference it in the `teamConfig.skills` list in `flake.nix`.
+
+### Packages (extensions from npm/git)
+
+Pi packages like `pi-lmstudio` are declared in `teamConfig.settings.packages`:
+
+```nix
+settings.packages = [
+  "npm:pi-lmstudio"
+  "npm:@foo/bar@1.0.0"
+  "git:github.com/user/repo@v1"
+];
+```
+
+This writes to `settings.json` and pi auto-installs missing packages on startup — equivalent to running `pi install npm:pi-lmstudio` manually.
 
 ### Models
 
@@ -107,4 +133,53 @@ For `nix run`, set keys in your shell environment as usual.
 
 ## Binary cache
 
-Build results are cached at [pi.cachix.org](https://pi.cachix.org). The flake declares the substituters via `nixConfig` — use `--accept-flake-config` or configure them in your nix settings.
+Build results are cached at [pi.cachix.org](https://pi.cachix.org). Without configuration, Nix won't trust caches declared by a flake, so you'll see:
+
+```
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+```
+
+You can pass `--accept-flake-config` each time, or configure the caches globally so no flag is needed.
+
+### nix-darwin
+
+```nix
+# In your nix-darwin configuration:
+nix.settings = {
+  extra-substituters = [
+    "https://pi.cachix.org"
+    "https://nix-community.cachix.org"
+  ];
+  extra-trusted-public-keys = [
+    "pi.cachix.org-1:lGeoGJaZ5ZDabuRzkcD5EBTNnDM4HJ1vqeOxlWk1Flk="
+    "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+  ];
+};
+```
+
+### NixOS
+
+```nix
+# In your NixOS configuration:
+nix.settings = {
+  extra-substituters = [
+    "https://pi.cachix.org"
+    "https://nix-community.cachix.org"
+  ];
+  extra-trusted-public-keys = [
+    "pi.cachix.org-1:lGeoGJaZ5ZDabuRzkcD5EBTNnDM4HJ1vqeOxlWk1Flk="
+    "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+  ];
+};
+```
+
+### Standalone Nix (no NixOS/nix-darwin)
+
+Add to `~/.config/nix/nix.conf`:
+
+```
+extra-substituters = https://pi.cachix.org https://nix-community.cachix.org
+extra-trusted-public-keys = pi.cachix.org-1:lGeoGJaZ5ZDabuRzkcD5EBTNnDM4HJ1vqeOxlWk1Flk= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
+```
+
+Once configured, `nix run github:xer0x/pi-setup` just works — no flags, fast downloads from cachix.
