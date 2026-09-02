@@ -25,6 +25,7 @@
       forEachSystem = nixpkgs.lib.genAttrs (import systems);
 
       # ── Shared team config (used by both `nix run` and the HM module) ──
+      #    Note: lean-ctx binary path is injected per-system below
       teamConfig = {
         rules = builtins.readFile ./rules.md;
         skills = [
@@ -43,44 +44,93 @@
           packages = [
             "npm:pi-lmstudio"
             "npm:pi-mcp-adapter"
+            "npm:pi-lean-ctx"
             # "npm:@foo/bar@1.0.0"
             # "git:github.com/user/repo@v1"
           ];
         };
         # extraArgs = [ "--provider" "anthropic" "--model" "claude-sonnet-4-20250514" ];
       };
+
+      # ── MCP config generator (needs the lean-ctx store path) ──
+      mkMcpJson = pkgs: lean-ctx:
+        pkgs.writeText "mcp.json" (builtins.toJSON {
+          mcpServers = {
+            lean-ctx = {
+              command = "${lean-ctx}/bin/lean-ctx";
+              lifecycle = "lazy";
+              directTools = true;
+            };
+          };
+        });
     in
     {
-      # ── `nix run .` — launches pi with team config baked in ──
+      # ── lean-ctx binary package ──
       packages = forEachSystem (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          lean-ctx = pkgs.callPackage ./pkgs/lean-ctx.nix {};
+          mcpJson = mkMcpJson pkgs lean-ctx;
+
           configured = pi.lib.mkCodingAgent {
             inherit pkgs;
             modules = [{
-              pi.coding-agent = teamConfig;
+              pi.coding-agent = teamConfig // {
+                # Disable pi-lean-ctx's built-in MCP (pi-mcp-adapter owns it)
+                environment = {
+                  LEAN_CTX_PI_ENABLE_MCP.value = "0";
+                };
+              };
             }];
           };
+
+          # Wrap the configured pi to also install mcp.json
+          piWrapped = pkgs.writeShellScriptBin "pi" ''
+            PI_CODING_AGENT_DIR="''${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+            mkdir -p "$PI_CODING_AGENT_DIR"
+
+            # Install mcp.json (merge with existing if present)
+            mcp_file="$PI_CODING_AGENT_DIR/mcp.json"
+            if [ ! -f "$mcp_file" ]; then
+              cp ${mcpJson} "$mcp_file"
+              chmod 0600 "$mcp_file"
+            else
+              # Merge: existing config wins, we add lean-ctx if missing
+              ${pkgs.lib.getExe pkgs.jq} -s '.[0] * .[1]' ${mcpJson} "$mcp_file" > "$mcp_file.tmp"
+              mv "$mcp_file.tmp" "$mcp_file"
+            fi
+
+            exec ${configured.package}/bin/pi "$@"
+          '';
         in {
-          default = configured.package;
-          pi = configured.package;
+          default = piWrapped;
+          pi = piWrapped;
+          lean-ctx = lean-ctx;
         }
       );
 
       # ── Home-Manager module (import from your HM config) ──
-      homeModules.default = { config, lib, pkgs, ... }: {
-        imports = [ pi.homeModules.default ];
+      homeModules.default = { config, lib, pkgs, ... }:
+        let
+          lean-ctx = pkgs.callPackage ./pkgs/lean-ctx.nix {};
+          mcpJson = mkMcpJson pkgs lean-ctx;
+        in {
+          imports = [ pi.homeModules.default ];
 
-        programs.pi.coding-agent = {
-          enable = true;
-        } // teamConfig // {
-          # ── Environment (HM-only, supports sops-nix) ──
-          environment = {
-            # ANTHROPIC_API_KEY.file = config.sops.secrets.anthropic-api-key.path;
-            # OPENAI_API_KEY.file = config.sops.secrets.openai-api-key.path;
+          programs.pi.coding-agent = {
+            enable = true;
+          } // teamConfig // {
+            environment = {
+              # Disable pi-lean-ctx's built-in MCP (pi-mcp-adapter owns it)
+              LEAN_CTX_PI_ENABLE_MCP.value = "0";
+              # ANTHROPIC_API_KEY.file = config.sops.secrets.anthropic-api-key.path;
+              # OPENAI_API_KEY.file = config.sops.secrets.openai-api-key.path;
+            };
           };
+
+          # Write mcp.json to Pi's config directory
+          home.file.".pi/agent/mcp.json".source = mcpJson;
         };
-      };
 
       # ── Sanity check ──
       checks = forEachSystem (system:

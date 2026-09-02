@@ -72,6 +72,8 @@ Both use the same `teamConfig` attrset, so rules, skills, and settings stay in s
 ```
 ├── flake.nix              # Packages + homeModules (single teamConfig)
 ├── rules.md               # Shared team rules
+├── pkgs/
+│   └── lean-ctx.nix       # lean-ctx Rust binary (built from crates.io)
 ├── skills/
 │   └── nix-helper/        # Shared skills
 │       └── SKILL.md
@@ -109,12 +111,22 @@ Pi packages like `pi-lmstudio` are declared in `teamConfig.settings.packages`:
 ```nix
 settings.packages = [
   "npm:pi-lmstudio"
-  "npm:@foo/bar@1.0.0"
-  "git:github.com/user/repo@v1"
+  "npm:pi-mcp-adapter"
+  "npm:pi-lean-ctx"
 ];
 ```
 
 This writes to `settings.json` and pi auto-installs missing packages on startup — equivalent to running `pi install npm:pi-lmstudio` manually.
+
+### MCP servers & native binaries
+
+Some pi packages need external binaries. `lean-ctx` is built from Rust via Nix (`pkgs/lean-ctx.nix`) and wired into `mcp.json` automatically:
+
+- `nix run .` — the wrapper script writes `~/.pi/agent/mcp.json` with the Nix store path
+- Home Manager — `home.file.".pi/agent/mcp.json"` manages the file declaratively
+- `LEAN_CTX_PI_ENABLE_MCP=0` disables pi-lean-ctx's built-in MCP server so pi-mcp-adapter owns it
+
+To add more MCP servers, edit the `mkMcpJson` function in `flake.nix`.
 
 ### Models
 
