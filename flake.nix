@@ -3,57 +3,78 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    systems.url = "github:nix-systems/default";
 
     pi.url = "github:lukasl-dev/pi.nix";
     # pi.inputs.nixpkgs.follows = "nixpkgs";  # uncomment if compatible
   };
 
-  outputs = { self, nixpkgs, pi, ... }: {
+  nixConfig = {
+    extra-substituters = [
+      "https://pi.cachix.org"
+      "https://nix-community.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "pi.cachix.org-1:lGeoGJaZ5ZDabuRzkcD5EBTNnDM4HJ1vqeOxlWk1Flk="
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+    ];
+  };
 
-    # ── Home-Manager module (import this from your HM config) ──
-    homeModules.default = { config, lib, pkgs, ... }: {
-      imports = [ pi.homeModules.default ];
+  outputs = { self, nixpkgs, systems, pi, ... }:
+    let
+      forEachSystem = nixpkgs.lib.genAttrs (import systems);
 
-      programs.pi.coding-agent = {
-        enable = true;
-
-        # ── Shared team rules ──
+      # ── Shared team config (used by both `nix run` and the HM module) ──
+      teamConfig = {
         rules = builtins.readFile ./rules.md;
-
-        # ── Skills ──
         skills = [
           ./skills/nix-helper
           # add more shared skills here
         ];
-
-        # ── Model catalog (optional) ──
-        # models = ./models.json;
-
-        # ── Default settings ──
         settings = {
-          # model = "claude-sonnet-4-20250514";
           enableSkillCommands = true;
           theme = "dark";
         };
+        # extraArgs = [ "--provider" "anthropic" "--model" "claude-sonnet-4-20250514" ];
+      };
+    in
+    {
+      # ── `nix run .` — launches pi with team config baked in ──
+      packages = forEachSystem (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          configured = pi.lib.mkCodingAgent {
+            inherit pkgs;
+            modules = [{
+              pi.coding-agent = teamConfig;
+            }];
+          };
+        in {
+          default = configured.package;
+          pi = configured.package;
+        }
+      );
 
-        # ── Environment ──
-        environment = {
-          # PI_OFFLINE.value = "1";          # useful in CI
-          # ANTHROPIC_API_KEY.file = config.sops.secrets.anthropic-api-key.path;
-          # OPENAI_API_KEY.file = config.sops.secrets.openai-api-key.path;
+      # ── Home-Manager module (import from your HM config) ──
+      homeModules.default = { config, lib, pkgs, ... }: {
+        imports = [ pi.homeModules.default ];
+
+        programs.pi.coding-agent = {
+          enable = true;
+        } // teamConfig // {
+          # ── Environment (HM-only, supports sops-nix) ──
+          environment = {
+            # ANTHROPIC_API_KEY.file = config.sops.secrets.anthropic-api-key.path;
+            # OPENAI_API_KEY.file = config.sops.secrets.openai-api-key.path;
+          };
         };
       };
-    };
 
-    # ── Quick sanity check ──
-    # nix flake check
-    checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ] (system:
-      let pkgs = nixpkgs.legacyPackages.${system}; in {
-        module-eval = pkgs.runCommand "pi-setup-check" {} ''
-          echo "pi-setup flake loads OK"
-          touch $out
-        '';
-      }
-    );
-  };
+      # ── Sanity check ──
+      checks = forEachSystem (system:
+        let pkgs = nixpkgs.legacyPackages.${system}; in {
+          build = self.packages.${system}.default;
+        }
+      );
+    };
 }
