@@ -1,12 +1,12 @@
 # pi-setup
 
-Shared [Pi](https://pi.dev) (coding agent) configuration for the team, managed with Nix.
+Shared [Pi](https://pi.dev) (coding agent) configuration, managed with Nix.
 
 Uses [pi.nix](https://github.com/lukasl-dev/pi.nix) for packaging and the home-manager module.
 
 ## Quick start
 
-Run pi with team config, no installation needed:
+Run pi with an initial config, no installation needed:
 
 ```bash
 nix run github:xer0x/pi-setup --accept-flake-config
