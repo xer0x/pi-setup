@@ -24,6 +24,27 @@
     let
       forEachSystem = nixpkgs.lib.genAttrs (import systems);
 
+      # ── Binary caches (single source of truth for nixConfig + system modules) ──
+      caches = {
+        substituters = [
+          "https://pi.cachix.org"
+          "https://nix-community.cachix.org"
+        ];
+        trusted-public-keys = [
+          "pi.cachix.org-1:lGeoGJaZ5ZDabuRzkcD5EBTNnDM4HJ1vqeOxlWk1Flk="
+          "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+        ];
+      };
+
+      # Daemon-level trust for the caches above. Import into nix-darwin or
+      # NixOS so `nix run` no longer warns about untrusted substituters.
+      cacheTrustModule = { ... }: {
+        nix.settings = {
+          substituters = caches.substituters;
+          trusted-public-keys = caches.trusted-public-keys;
+        };
+      };
+
       # ── Shared team config (used by both `nix run` and the HM module) ──
       #    Note: lean-ctx binary path is injected per-system below
       teamConfig = {
@@ -131,6 +152,11 @@
           # Write mcp.json to Pi's config directory
           home.file.".pi/agent/mcp.json".source = mcpJson;
         };
+
+      # ── nix-darwin / NixOS modules: trust the team binary caches ──
+      #    darwin-configuration: imports = [ pi-setup.darwinModules.default ];
+      darwinModules.default = cacheTrustModule;
+      nixosModules.default = cacheTrustModule;
 
       # ── Sanity check ──
       checks = forEachSystem (system:
