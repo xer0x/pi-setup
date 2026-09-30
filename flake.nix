@@ -65,7 +65,14 @@
           packages = [
             "npm:pi-lmstudio"
             "npm:pi-mcp-adapter"
+            "npm:pi-subagents"
             "npm:pi-lean-ctx"
+            "npm:pi-web-access" # websearch, and more
+            "npm:@juicesharp/rpiv-ask-user-question"
+            "npm:@juicesharp/rpiv-todo"
+            "npm:pi-lens" # LSP, Typecheck, tool runners
+            "npm:@amaster.ai/pi-memory-mem0"
+            "npm:@dietrichgebert/ponytail" # encourages short simple solutions
             # "npm:@foo/bar@1.0.0"
             # "git:github.com/user/repo@v1"
           ];
@@ -75,7 +82,7 @@
 
       # ── MCP config generator (needs the lean-ctx store path) ──
       mkMcpJson = pkgs: lean-ctx:
-        pkgs.writeText "mcp.json" (builtins.toJSON {
+        pkgs.writeText "mcp-adapter.json" (builtins.toJSON {
           mcpServers = {
             lean-ctx = {
               command = "${lean-ctx}/bin/lean-ctx";
@@ -105,13 +112,13 @@
             }];
           };
 
-          # Wrap the configured pi to also install mcp.json
+          # Wrap the configured pi to also install mcp-adapter.json
           piWrapped = pkgs.writeShellScriptBin "pi" ''
             PI_CODING_AGENT_DIR="''${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
             mkdir -p "$PI_CODING_AGENT_DIR"
 
-            # Install mcp.json (merge with existing if present)
-            mcp_file="$PI_CODING_AGENT_DIR/mcp.json"
+            # Install mcp-adapter.json (merge with existing if present)
+            mcp_file="$PI_CODING_AGENT_DIR/mcp-adapter.json"
             if [ ! -f "$mcp_file" ]; then
               cp ${mcpJson} "$mcp_file"
               chmod 0600 "$mcp_file"
@@ -120,6 +127,15 @@
               ${pkgs.lib.getExe pkgs.jq} -s '.[0] * .[1]' ${mcpJson} "$mcp_file" > "$mcp_file.tmp"
               mv "$mcp_file.tmp" "$mcp_file"
             fi
+
+            # rpiv-* ship typebox in dependencies; pi warns on every start.
+            # Move it to a "*" peer (pi provides typebox anyway).
+            # ponytail: drop once juicesharp/rpiv-mono fixes upstream.
+            for f in "$PI_CODING_AGENT_DIR"/npm/node_modules/@juicesharp/rpiv-{todo,ask-user-question}/package.json; do
+              [ -f "$f" ] || continue
+              ${pkgs.lib.getExe pkgs.jq} -e '.dependencies.typebox' "$f" >/dev/null || continue
+              ${pkgs.lib.getExe pkgs.jq} 'del(.dependencies.typebox) | .peerDependencies.typebox = "*"' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            done
 
             exec ${configured.package}/bin/pi "$@"
           '';
@@ -149,8 +165,8 @@
             };
           };
 
-          # Write mcp.json to Pi's config directory
-          home.file.".pi/agent/mcp.json".source = mcpJson;
+          # Write mcp-adapter.json to Pi's config directory
+          home.file.".pi/agent/mcp-adapter.json".source = mcpJson;
         };
 
       # ── nix-darwin / NixOS modules: trust the team binary caches ──
